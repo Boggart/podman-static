@@ -8,8 +8,6 @@ PODMAN_SSH_IMAGE ?= mgoltzsche/podman-ssh
 GPG_IMAGE = gpg-signer
 
 BUILD_DIR = ./build
-ASSET_NAME = podman-linux-amd64
-ASSET_DIR := $(BUILD_DIR)/asset/$(ASSET_NAME)
 
 BATS_VERSION = v1.4.1
 BATS_DIR := $(BUILD_DIR)/bats-$(BATS_VERSION)
@@ -20,22 +18,52 @@ BATS_TEST ?= test
 #DOCKER ?= $(if $(shell podman -v),podman,docker)
 DOCKER ?= docker
 export DOCKER
+PLATFORM ?= linux/amd64
+BUILDX_BUILDER ?= podman-builder
+BUILDX_OUTPUT ?= type=docker
+BUILDX_OPTS ?= --builder=$(BUILDX_BUILDER) --output=$(BUILDX_OUTPUT) --platform=$(PLATFORM)
 
-images: podman podman-remote podman-minimal
+ASSET_NAME := podman-linux-$(shell echo "$(PLATFORM)" | sed -E 's!linux/([^/]+).*!\1!')
+ASSET_DIR := $(BUILD_DIR)/asset/$(ASSET_NAME)
+
+images: create-builder podman podman-remote podman-minimal
+
+multiarch: PLATFORMS = linux/amd64 linux/arm64/v8
+multiarch: TAR_TARGET ?= tar
+multiarch:
+	@{ \
+	set -e ;\
+	for PLATFORM in $(PLATFORMS); do \
+		printf '\nBuilding podman images and binaries for %s...\n\n' "$$PLATFORM" ;\
+		make images test-binary $(TAR_TARGET) PLATFORM="$$PLATFORM" BUILDX_BUILDER="$(BUILDX_BUILDER)" ;\
+	done ;\
+	}
 
 podman:
-	$(DOCKER) build --force-rm -t $(PODMAN_IMAGE) --target $(PODMAN_IMAGE_TARGET) .
+	$(DOCKER) buildx build $(BUILDX_OPTS) --force-rm -t $(PODMAN_IMAGE) --target $(PODMAN_IMAGE_TARGET) .
 
 podman-minimal:
-	make podman PODMAN_IMAGE=$(PODMAN_MINIMAL_IMAGE) PODMAN_IMAGE_TARGET=rootlesspodmanminimal
+	make podman PODMAN_IMAGE=$(PODMAN_MINIMAL_IMAGE) PODMAN_IMAGE_TARGET=rootlesspodmanminimal BUILDX_OPTS="$(BUILDX_OPTS)"
 
 podman-remote:
-	$(DOCKER) build --force-rm -t $(PODMAN_REMOTE_IMAGE) -f Dockerfile-remote .
+	$(DOCKER) buildx build $(BUILDX_OPTS) --force-rm -t $(PODMAN_REMOTE_IMAGE) -f Dockerfile-remote .
 
 podman-ssh: podman
-	$(DOCKER) build --force-rm -t $(PODMAN_SSH_IMAGE) -f Dockerfile-ssh --build-arg BASEIMAGE=$(PODMAN_IMAGE) .
+	$(DOCKER) buildx build $(BUILDX_OPTS) --force-rm -t $(PODMAN_SSH_IMAGE) -f Dockerfile-ssh --build-arg BASEIMAGE=$(PODMAN_IMAGE) .
 
-test: test-use-cases test-minimal-image
+create-builder:
+	$(DOCKER) buildx inspect $(BUILDX_BUILDER) >/dev/null 2<&1 || $(DOCKER) buildx create --name=$(BUILDX_BUILDER) >/dev/null
+
+delete-builder:
+	$(DOCKER) buildx rm $(BUILDX_BUILDER)
+
+register-qemu-binfmt:
+	$(DOCKER) run --rm --privileged multiarch/qemu-user-static:5.2.0-2 --reset -p yes
+
+test: test-binary test-use-cases test-minimal-image
+
+test-binary:
+	$(DOCKER) run --rm --privileged --pull=never $(PODMAN_IMAGE) /bin/sh -c 'echo "lock_type=\"file\"" >> /etc/containers/containers.conf && podman info'
 
 test-use-cases: $(BATS)
 	DOCKER=$(DOCKER) \

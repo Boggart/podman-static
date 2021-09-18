@@ -15,5 +15,12 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v2
 
-    - name: Build & Test
-      run: make podman podman-minimal podman-remote test
+    - name: Build & test linux/amd64 image
+      run: make create-builder images test
+
+    - name: Build cross-platform binaries and images (quick binary test only)
+      run: make multiarch
+
+    - name: Build cross-platform image
+      run: make images PLATFORM="linux/amd64,linux/arm64/v8
+
