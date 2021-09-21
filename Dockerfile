@@ -53,7 +53,7 @@ RUN set -ex; \
 # CNI plugins
 FROM podmanbuildbase AS cniplugins
 ARG CNI_PLUGIN_VERSION=v1.0.0
-ARG CNI_PLUGINS="ipam/host-local main/loopback main/bridge meta/portmap meta/tuning meta/firewall"
+ARG CNI_PLUGINS="ipam/host-local ipam/dhcp ipam/static main/loopback main/bridge main/ipvlan main/macvlan main/ptp main/hostdevice meta/portmap meta/tuning meta/bandwidth meta/sbr meta/firewall"
 RUN git clone -c 'advice.detachedHead=false' --depth=1 --branch=${CNI_PLUGIN_VERSION} https://github.com/containernetworking/plugins /go/src/github.com/containernetworking/plugins
 WORKDIR /go/src/github.com/containernetworking/plugins
 RUN set -ex; \
